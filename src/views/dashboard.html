@@ -1,0 +1,108 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Sistema de Vendas</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <h1>💰 Sistema de Vendas</h1>
+            <ul class="nav-links">
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/produtos">Produtos</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h2 style="margin-bottom: 2rem;">📊 Dashboard de Vendas</h2>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total de Vendas</h3>
+                <div class="value" id="totalVendas">0</div>
+            </div>
+            <div class="stat-card" style="border-left-color: var(--success);">
+                <h3>Vendas Pagas</h3>
+                <div class="value" id="vendasPagas">0</div>
+            </div>
+            <div class="stat-card" style="border-left-color: var(--warning);">
+                <h3>Pendentes</h3>
+                <div class="value" id="totalPendente">R$ 0,00</div>
+            </div>
+            <div class="stat-card" style="border-left-color: var(--success);">
+                <h3>Faturamento</h3>
+                <div class="value" id="totalFaturado">R$ 0,00</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-bottom: 1rem;">📋 Últimas Vendas</h3>
+            <div id="vendasTable"></div>
+        </div>
+    </div>
+
+    <script>
+        async function carregarDashboard() {
+            try {
+                const statsRes = await fetch('/api/vendas/stats');
+                const stats = await statsRes.json();
+
+                document.getElementById('totalVendas').textContent = stats.total_vendas || 0;
+                document.getElementById('vendasPagas').textContent = stats.vendas_pagas || 0;
+                document.getElementById('totalPendente').textContent = 
+                    'R$ ' + (stats.total_pendente || 0).toFixed(2).replace('.', ',');
+                document.getElementById('totalFaturado').textContent = 
+                    'R$ ' + (stats.total_faturado || 0).toFixed(2).replace('.', ',');
+
+                const vendasRes = await fetch('/api/vendas');
+                const vendas = await vendasRes.json();
+
+                const tableHTML = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Cliente</th>
+                                <th>Produto</th>
+                                <th>Plano</th>
+                                <th>Valor</th>
+                                <th>Status</th>
+                                <th>Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${vendas.map(v => `
+                                <tr>
+                                    <td>#${v.id}</td>
+                                    <td>${v.cliente_nome}</td>
+                                    <td>${v.produto_nome}</td>
+                                    <td>${v.plano_nome}</td>
+                                    <td>R$ ${parseFloat(v.valor).toFixed(2).replace('.', ',')}</td>
+                                    <td>
+                                        <span class="badge badge-${v.status === 'pago' ? 'success' : 'warning'}">
+                                            ${v.status === 'pago' ? '✓ Pago' : '⏳ Pendente'}
+                                        </span>
+                                    </td>
+                                    <td>${new Date(v.criado_em).toLocaleString('pt-BR')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+                document.getElementById('vendasTable').innerHTML = tableHTML;
+
+            } catch (error) {
+                console.error('Erro ao carregar dashboard:', error);
+            }
+        }
+
+        carregarDashboard();
+        setInterval(carregarDashboard, 30000);
+    </script>
+</body>
+</html>

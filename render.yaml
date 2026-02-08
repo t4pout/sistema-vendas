@@ -1,0 +1,13 @@
+﻿services:
+  - type: web
+    name: sistema-vendas
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PIXUP_API_KEY
+        value: trevodourado7_71216521594818017
+      - key: PIXUP_API_URL
+        value: https://api.pixup.com.br/v1

@@ -1,0 +1,422 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - Finalizar Compra</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .checkout-banner {
+            width: 100%;
+            max-height: 300px;
+            object-fit: cover;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+        
+        .checkout-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 20px;
+        }
+        
+        .checkout-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        
+        .produto-info {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .produto-info img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .preco-destaque {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--success);
+            margin: 1rem 0;
+        }
+        
+        .qrcode-container {
+            text-align: center;
+            padding: 2rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .qrcode-container img {
+            max-width: 300px;
+            margin: 1rem auto;
+        }
+        
+        .pix-code {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: monospace;
+            margin: 1rem 0;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            margin: 1rem 0;
+        }
+        
+        .status-pendente {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-aprovado {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .loading-cep {
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .checkout-grid {
+                grid-template-columns: 1fr;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="checkout-container">
+        <img id="checkoutBanner" class="checkout-banner" src="" alt="Banner" style="display: none;">
+        
+        <h1 style="text-align: center; margin-bottom: 2rem;">🛒 Finalizar Compra</h1>
+        
+        <div id="loadingPlano" class="loading">
+            <div class="spinner"></div>
+            <p>Carregando informações...</p>
+        </div>
+
+        <div id="checkoutContent" style="display: none;">
+            <div class="checkout-grid">
+                <div class="produto-info">
+                    <img id="produtoImagem" src="" alt="Produto">
+                    <h2 id="produtoNome"></h2>
+                    <p id="produtoDescricao" style="color: #6b7280; margin: 1rem 0;"></p>
+                    
+                    <div style="background: #f9fafb; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                        <h3 id="planoNome" style="margin-bottom: 0.5rem;"></h3>
+                        <p id="planoQuantidade" style="color: #6b7280;"></p>
+                    </div>
+                    
+                    <div class="preco-destaque" id="planoPreco"></div>
+                    
+                    <div id="formCliente">
+                        <h3 style="margin: 1.5rem 0 1rem 0;">📋 Seus Dados</h3>
+                        <form id="checkoutForm" onsubmit="finalizarCompra(event)">
+                            <div class="form-group">
+                                <label>Nome Completo *</label>
+                                <input type="text" name="nome" required>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Email *</label>
+                                    <input type="email" name="email" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Telefone *</label>
+                                    <input type="tel" name="telefone" placeholder="(11) 99999-9999" required>
+                                </div>
+                            </div>
+
+                            <h3 style="margin: 1.5rem 0 1rem 0;">📍 Endereço de Entrega</h3>
+                            
+                            <div class="form-group">
+                                <label>CEP *</label>
+                                <input type="text" name="cep" id="cep" placeholder="00000-000" maxlength="9" required onblur="buscarCEP()">
+                                <div id="loadingCep" class="loading-cep" style="display: none;">Buscando CEP...</div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Rua *</label>
+                                    <input type="text" name="rua" id="rua" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Número *</label>
+                                    <input type="text" name="numero" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Complemento</label>
+                                <input type="text" name="complemento">
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Bairro *</label>
+                                    <input type="text" name="bairro" id="bairro" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Cidade *</label>
+                                    <input type="text" name="cidade" id="cidade" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Estado *</label>
+                                <input type="text" name="estado" id="estado" maxlength="2" placeholder="SP" required>
+                            </div>
+
+                            <button type="submit" class="btn btn-success" style="width: 100%;">
+                                Gerar Pix para Pagamento
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="pixArea" style="display: none;">
+                    <div class="qrcode-container">
+                        <h3>💳 Pagamento via Pix</h3>
+                        
+                        <div class="status-badge status-pendente" id="statusPagamento">
+                            <span>⏳</span>
+                            <span>Aguardando Pagamento</span>
+                        </div>
+
+                        <img id="qrcodeImage" src="" alt="QR Code Pix">
+                        
+                        <p style="margin: 1rem 0; color: #6b7280;">
+                            Escaneie o QR Code acima com o app do seu banco
+                        </p>
+
+                        <div style="text-align: left;">
+                            <p style="font-weight: 600; margin-bottom: 0.5rem;">Ou copie o código Pix:</p>
+                            <div class="pix-code" id="pixCodigo"></div>
+                            <button class="btn btn-primary" onclick="copiarCodigoPix()" style="width: 100%;">
+                                📋 Copiar Código Pix
+                            </button>
+                        </div>
+
+                        <div style="margin-top: 2rem; padding: 1rem; background: #eff6ff; border-radius: 8px;">
+                            <p style="font-size: 0.875rem; color: #1e40af;">
+                                ℹ️ O pagamento será confirmado automaticamente em alguns segundos após a aprovação.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="sucessoArea" style="display: none; text-align: center;">
+            <div class="card">
+                <div style="font-size: 4rem; margin-bottom: 1rem;">✅</div>
+                <h2 style="color: var(--success); margin-bottom: 1rem;">Pagamento Confirmado!</h2>
+                <p style="font-size: 1.125rem; color: #6b7280;">
+                    Obrigado pela sua compra! Em breve você receberá seu pedido.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let planoAtual = null;
+        let vendaId = null;
+        let checkInterval = null;
+
+        async function carregarPlano() {
+            const link = window.location.pathname.split('/').pop();
+            
+            try {
+                const res = await fetch(`/api/produtos/checkout/${link}`);
+                
+                if (!res.ok) {
+                    alert('Plano não encontrado!');
+                    return;
+                }
+                
+                planoAtual = await res.json();
+                
+                document.getElementById('produtoNome').textContent = planoAtual.produto_nome;
+                document.getElementById('produtoDescricao').textContent = planoAtual.descricao || '';
+                document.getElementById('planoNome').textContent = planoAtual.nome;
+                document.getElementById('planoQuantidade').textContent = `${planoAtual.quantidade} unidade(s)`;
+                document.getElementById('planoPreco').textContent = 
+                    'R$ ' + parseFloat(planoAtual.preco).toFixed(2).replace('.', ',');
+                
+                if (planoAtual.imagem) {
+                    document.getElementById('produtoImagem').src = planoAtual.imagem;
+                } else {
+                    document.getElementById('produtoImagem').style.display = 'none';
+                }
+
+                if (planoAtual.banner) {
+                    document.getElementById('checkoutBanner').src = planoAtual.banner;
+                    document.getElementById('checkoutBanner').style.display = 'block';
+                }
+                
+                document.getElementById('loadingPlano').style.display = 'none';
+                document.getElementById('checkoutContent').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Erro ao carregar plano:', error);
+                alert('Erro ao carregar informações do produto!');
+            }
+        }
+
+        async function buscarCEP() {
+            const cep = document.getElementById('cep').value.replace(/\D/g, '');
+            
+            if (cep.length !== 8) return;
+
+            const loadingCep = document.getElementById('loadingCep');
+            loadingCep.style.display = 'block';
+
+            try {
+                const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+                const data = await res.json();
+
+                if (data.erro) {
+                    alert('CEP não encontrado!');
+                    return;
+                }
+
+                document.getElementById('rua').value = data.logradouro || '';
+                document.getElementById('bairro').value = data.bairro || '';
+                document.getElementById('cidade').value = data.localidade || '';
+                document.getElementById('estado').value = data.uf || '';
+
+            } catch (error) {
+                console.error('Erro ao buscar CEP:', error);
+                alert('Erro ao buscar CEP. Digite manualmente.');
+            } finally {
+                loadingCep.style.display = 'none';
+            }
+        }
+
+        document.getElementById('cep').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length > 5) {
+                value = value.substring(0, 5) + '-' + value.substring(5, 8);
+            }
+            e.target.value = value;
+        });
+
+        async function finalizarCompra(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const dados = {
+                plano_id: planoAtual.id,
+                cliente_nome: formData.get('nome'),
+                cliente_email: formData.get('email'),
+                cliente_telefone: formData.get('telefone'),
+                cliente_cep: formData.get('cep'),
+                cliente_rua: formData.get('rua'),
+                cliente_numero: formData.get('numero'),
+                cliente_complemento: formData.get('complemento'),
+                cliente_bairro: formData.get('bairro'),
+                cliente_cidade: formData.get('cidade'),
+                cliente_estado: formData.get('estado')
+            };
+
+            try {
+                const btnSubmit = e.target.querySelector('button[type="submit"]');
+                btnSubmit.disabled = true;
+                btnSubmit.textContent = 'Gerando Pix...';
+
+                const res = await fetch('/api/vendas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dados)
+                });
+
+                if (!res.ok) {
+                    throw new Error('Erro ao gerar Pix');
+                }
+
+                const venda = await res.json();
+                vendaId = venda.venda_id;
+
+                document.getElementById('qrcodeImage').src = venda.qrcode;
+                document.getElementById('pixCodigo').textContent = venda.codigo_pix;
+
+                document.getElementById('formCliente').style.display = 'none';
+                document.getElementById('pixArea').style.display = 'block';
+
+                iniciarVerificacaoPagamento();
+
+            } catch (error) {
+                console.error('Erro ao finalizar compra:', error);
+                alert('Erro ao gerar pagamento Pix. Tente novamente!');
+                
+                const btnSubmit = e.target.querySelector('button[type="submit"]');
+                btnSubmit.disabled = false;
+                btnSubmit.textContent = 'Gerar Pix para Pagamento';
+            }
+        }
+
+        function copiarCodigoPix() {
+            const codigo = document.getElementById('pixCodigo').textContent;
+            navigator.clipboard.writeText(codigo);
+            alert('Código Pix copiado!');
+        }
+
+        function iniciarVerificacaoPagamento() {
+            checkInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/vendas`);
+                    const vendas = await res.json();
+                    const venda = vendas.find(v => v.id === vendaId);
+
+                    if (venda && venda.status === 'pago') {
+                        clearInterval(checkInterval);
+                        mostrarSucesso();
+                    }
+                } catch (error) {
+                    console.error('Erro ao verificar pagamento:', error);
+                }
+            }, 3000);
+        }
+
+        function mostrarSucesso() {
+            document.getElementById('checkoutContent').style.display = 'none';
+            document.getElementById('sucessoArea').style.display = 'block';
+            
+            const statusBadge = document.getElementById('statusPagamento');
+            statusBadge.className = 'status-badge status-aprovado';
+            statusBadge.innerHTML = '<span>✅</span><span>Pagamento Aprovado</span>';
+        }
+
+        carregarPlano();
+    </script>
+</body>
+</html>

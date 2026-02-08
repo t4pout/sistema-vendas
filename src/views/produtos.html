@@ -1,0 +1,215 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Produtos - Sistema de Vendas</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <h1>💰 Sistema de Vendas</h1>
+            <ul class="nav-links">
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/produtos">Produtos</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <h2>📦 Gerenciar Produtos</h2>
+            <button class="btn btn-primary" onclick="abrirModalProduto()">+ Novo Produto</button>
+        </div>
+
+        <div id="produtosList"></div>
+    </div>
+
+    <div id="modalProduto" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 1.5rem;">Criar Novo Produto</h3>
+            <form id="formProduto" onsubmit="criarProduto(event)">
+                <div class="form-group">
+                    <label>Nome do Produto</label>
+                    <input type="text" name="nome" required>
+                </div>
+                <div class="form-group">
+                    <label>Descrição</label>
+                    <textarea name="descricao" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>URL da Imagem</label>
+                    <input type="url" name="imagem" placeholder="https://...">
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button type="submit" class="btn btn-primary">Criar Produto</button>
+                    <button type="button" class="btn" onclick="fecharModalProduto()" style="background: #e5e7eb;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modalPlano" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 style="margin-bottom: 1.5rem;">Criar Plano</h3>
+            <form id="formPlano" onsubmit="criarPlano(event)">
+                <input type="hidden" name="produto_id" id="plano_produto_id">
+                <div class="form-group">
+                    <label>Nome do Plano</label>
+                    <input type="text" name="nome" placeholder="Ex: Kit 5 unidades" required>
+                </div>
+                <div class="form-group">
+                    <label>Quantidade</label>
+                    <input type="number" name="quantidade" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>Preço (R$)</label>
+                    <input type="number" name="preco" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label>URL do Banner do Checkout (Opcional)</label>
+                    <input type="url" name="banner" placeholder="https://...">
+                    <small style="color: #6b7280; font-size: 0.875rem;">Banner que aparecerá no topo da página de checkout</small>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button type="submit" class="btn btn-success">Criar Plano</button>
+                    <button type="button" class="btn" onclick="fecharModalPlano()" style="background: #e5e7eb;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        async function carregarProdutos() {
+            try {
+                const res = await fetch('/api/produtos');
+                const produtos = await res.json();
+
+                const html = produtos.map(p => `
+                    <div class="card">
+                        <div style="display: flex; gap: 2rem;">
+                            ${p.imagem ? `<img src="${p.imagem}" style="width: 120px; height: 120px; object-fit: cover; border-radius: 8px;">` : ''}
+                            <div style="flex: 1;">
+                                <h3>${p.nome}</h3>
+                                <p style="color: #6b7280; margin: 0.5rem 0;">${p.descricao || ''}</p>
+                                <button class="btn btn-primary" onclick="abrirModalPlano(${p.id})" style="margin-top: 1rem;">
+                                    + Adicionar Plano
+                                </button>
+
+                                ${p.planos && p.planos.length > 0 ? `
+                                    <div style="margin-top: 1.5rem;">
+                                        <h4 style="margin-bottom: 1rem;">Planos Disponíveis:</h4>
+                                        ${p.planos.map(pl => `
+                                            <div style="background: #f9fafb; padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <div>
+                                                        <strong>${pl.nome}</strong> - ${pl.quantidade} unidade(s)
+                                                        <br>
+                                                        <span style="color: var(--success); font-size: 1.25rem; font-weight: bold;">
+                                                            R$ ${parseFloat(pl.preco).toFixed(2).replace('.', ',')}
+                                                        </span>
+                                                        ${pl.banner ? '<br><small style="color: #6b7280;">📸 Com banner personalizado</small>' : ''}
+                                                    </div>
+                                                    <div>
+                                                        <button class="btn btn-primary" onclick="copiarLink('${pl.link_checkout}')" style="font-size: 0.875rem;">
+                                                            📋 Copiar Link
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <input type="text" value="http://localhost:3000/checkout/${pl.link_checkout}" 
+                                                       id="link_${pl.link_checkout}" readonly 
+                                                       style="margin-top: 0.5rem; font-size: 0.875rem; color: #6b7280;">
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : '<p style="color: #9ca3af; margin-top: 1rem;">Nenhum plano criado ainda.</p>'}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+                document.getElementById('produtosList').innerHTML = html || '<p>Nenhum produto cadastrado.</p>';
+
+            } catch (error) {
+                console.error('Erro ao carregar produtos:', error);
+            }
+        }
+
+        async function criarProduto(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+
+            try {
+                await fetch('/api/produtos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                fecharModalProduto();
+                carregarProdutos();
+                e.target.reset();
+            } catch (error) {
+                alert('Erro ao criar produto!');
+            }
+        }
+
+        async function criarPlano(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const produtoId = formData.get('produto_id');
+            const data = {
+                nome: formData.get('nome'),
+                quantidade: parseInt(formData.get('quantidade')),
+                preco: parseFloat(formData.get('preco')),
+                banner: formData.get('banner') || null
+            };
+
+            try {
+                const res = await fetch(`/api/produtos/${produtoId}/planos`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await res.json();
+                alert(`Plano criado com sucesso! Link: ${result.url_checkout}`);
+
+                fecharModalPlano();
+                carregarProdutos();
+                e.target.reset();
+            } catch (error) {
+                alert('Erro ao criar plano!');
+            }
+        }
+
+        function abrirModalProduto() {
+            document.getElementById('modalProduto').classList.add('active');
+        }
+
+        function fecharModalProduto() {
+            document.getElementById('modalProduto').classList.remove('active');
+        }
+
+        function abrirModalPlano(produtoId) {
+            document.getElementById('plano_produto_id').value = produtoId;
+            document.getElementById('modalPlano').classList.add('active');
+        }
+
+        function fecharModalPlano() {
+            document.getElementById('modalPlano').classList.remove('active');
+        }
+
+        function copiarLink(linkCheckout) {
+            const input = document.getElementById(`link_${linkCheckout}`);
+            input.select();
+            document.execCommand('copy');
+            alert('Link copiado!');
+        }
+
+        carregarProdutos();
+    </script>
+</body>
+</html>
