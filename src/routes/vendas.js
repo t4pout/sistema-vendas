@@ -2,6 +2,7 @@
 const router = express.Router();
 const db = require('../database/db');
 const axios = require('axios');
+const { dispararEvento } = require('../helpers/facebookPixel');
 
 const PIXUP_CLIENT_ID = process.env.PIXUP_CLIENT_ID;
 const PIXUP_CLIENT_SECRET = process.env.PIXUP_CLIENT_SECRET;
@@ -80,8 +81,28 @@ router.post('/', async (req, res) => {
             cliente_bairro, cliente_cidade, cliente_estado,
             plano.preco, qrcode, brcode, txid
         ],
-        function(err) {
+        async function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            
+            if (plano.pixel_id && plano.pixel_access_token) {
+                await dispararEvento(
+                    plano.pixel_id,
+                    plano.pixel_access_token,
+                    'AddPaymentInfo',
+                    {
+                        email: cliente_email,
+                        phone: cliente_telefone,
+                        name: cliente_nome,
+                        value: plano.preco,
+                        contentName: plano.produto_nome + ' - ' + plano.nome,
+                        productId: plano_id,
+                        quantity: plano.quantidade,
+                        userAgent: req.headers['user-agent'],
+                        ip: req.ip,
+                        eventSourceUrl: req.headers.referer || req.headers.origin
+                    }
+                );
+            }
             
             res.json({
                 venda_id: this.lastID,
@@ -133,22 +154,99 @@ router.get('/stats', (req, res) => {
     });
 });
 
-router.post('/webhook', (req, res) => {
+router.post('/webhook', async (req, res) => {
     const { txid, status } = req.body;
     
     if (status === 'paid' || status === 'approved') {
-        const sql = `
-            UPDATE vendas 
-            SET status = 'pago', pago_em = CURRENT_TIMESTAMP
-            WHERE pix_txid = ?
-        `;
-        
-        db.run(sql, [txid], (err) => {
-            if (err) console.error('Erro ao atualizar venda:', err);
+        db.get('SELECT * FROM vendas WHERE pix_txid = ?', [txid], async (err, venda) => {
+            if (err || !venda) {
+                console.error('Venda nao encontrada para txid:', txid);
+                return res.json({ received: true });
+            }
+
+            db.run(
+                'UPDATE vendas SET status = ?, pago_em = CURRENT_TIMESTAMP WHERE pix_txid = ?',
+                ['pago', txid],
+                async (err) => {
+                    if (err) {
+                        console.error('Erro ao atualizar venda:', err);
+                        return res.json({ received: true });
+                    }
+
+                    const plano = await new Promise((resolve) => {
+                        db.get(
+                            'SELECT pl.*, p.nome as produto_nome FROM planos pl JOIN produtos p ON pl.produto_id = p.id WHERE pl.id = ?',
+                            [venda.plano_id],
+                            (err, row) => resolve(row)
+                        );
+                    });
+
+                    if (plano && plano.pixel_id && plano.pixel_access_token) {
+                        await dispararEvento(
+                            plano.pixel_id,
+                            plano.pixel_access_token,
+                            'Purchase',
+                            {
+                                email: venda.cliente_email,
+                                phone: venda.cliente_telefone,
+                                name: venda.cliente_nome,
+                                value: venda.valor,
+                                contentName: plano.produto_nome + ' - ' + plano.nome,
+                                productId: plano.id,
+                                quantity: plano.quantidade,
+                                userAgent: 'webhook',
+                                ip: '127.0.0.1',
+                                eventSourceUrl: process.env.BASE_URL
+                            }
+                        );
+                    }
+
+                    res.json({ received: true });
+                }
+            );
         });
+    } else {
+        res.json({ received: true });
     }
+});
+
+
+router.post('/pixel/initiatecheckout', async (req, res) => {
+    const { plano_id, value, content_name } = req.body;
     
-    res.json({ received: true });
+    try {
+        const plano = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM planos WHERE id = ?', [plano_id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (plano && plano.pixel_id && plano.pixel_access_token) {
+            await dispararEvento(
+                plano.pixel_id,
+                plano.pixel_access_token,
+                'InitiateCheckout',
+                {
+                    email: 'visitante@checkout.com',
+                    phone: '',
+                    name: 'Visitante',
+                    value: value,
+                    contentName: content_name,
+                    productId: plano_id,
+                    quantity: plano.quantidade,
+                    userAgent: req.headers['user-agent'],
+                    ip: req.ip,
+                    eventSourceUrl: req.headers.referer || req.headers.origin
+                }
+            );
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Erro ao disparar InitiateCheckout:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;

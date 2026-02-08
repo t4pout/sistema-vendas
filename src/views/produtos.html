@@ -80,6 +80,47 @@
         </div>
     </div>
 
+    <div id="modalPixel" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 style="margin-bottom: 1.5rem;">📊 Adicionar Pixel do Facebook</h3>
+            <form id="formPixel" onsubmit="adicionarPixel(event)">
+                <input type="hidden" name="plano_id" id="pixel_plano_id">
+                
+                <div class="form-group">
+                    <label>Pixel ID *</label>
+                    <input type="text" name="pixel_id" placeholder="123456789012345" required>
+                    <small style="color: #6b7280; font-size: 0.875rem;">
+                        Encontre em: Facebook Events Manager → Pixels → Seu Pixel → ID
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Access Token *</label>
+                    <textarea name="pixel_access_token" rows="3" placeholder="EAAxxxxxxxxxxxxx..." required></textarea>
+                    <small style="color: #6b7280; font-size: 0.875rem;">
+                        Token de acesso para Conversions API
+                    </small>
+                </div>
+
+                <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                    <p style="font-size: 0.875rem; color: #1e40af; margin-bottom: 0.5rem;">
+                        <strong>Eventos que serão disparados:</strong>
+                    </p>
+                    <ul style="font-size: 0.875rem; color: #1e40af; margin-left: 1.5rem;">
+                        <li>InitiateCheckout - Acesso ao checkout</li>
+                        <li>AddPaymentInfo - Pix gerado</li>
+                        <li>Purchase - Pix pago</li>
+                    </ul>
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button type="submit" class="btn btn-primary">Salvar Pixel</button>
+                    <button type="button" class="btn" onclick="fecharModalPixel()" style="background: #e5e7eb;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         async function carregarProdutos() {
             try {
@@ -102,22 +143,27 @@
                                         <h4 style="margin-bottom: 1rem;">Planos Disponíveis:</h4>
                                         ${p.planos.map(pl => `
                                             <div style="background: #f9fafb; padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
-                                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                                    <div>
+                                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                                    <div style="flex: 1;">
                                                         <strong>${pl.nome}</strong> - ${pl.quantidade} unidade(s)
                                                         <br>
                                                         <span style="color: var(--success); font-size: 1.25rem; font-weight: bold;">
                                                             R$ ${parseFloat(pl.preco).toFixed(2).replace('.', ',')}
                                                         </span>
-                                                        ${pl.banner ? '<br><small style="color: #6b7280;">📸 Com banner personalizado</small>' : ''}
+                                                        ${pl.banner ? '<br><small style="color: #6b7280;">📸 Com banner</small>' : ''}
+                                                        ${pl.pixel_id ? '<br><small style="color: #3b82f6;">📊 Pixel configurado</small>' : ''}
                                                     </div>
-                                                    <div>
+                                                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                                         <button class="btn btn-primary" onclick="copiarLink('${pl.link_checkout}')" style="font-size: 0.875rem;">
                                                             📋 Copiar Link
                                                         </button>
+                                                        <button class="btn" onclick="abrirModalPixel(${pl.id}, '${pl.pixel_id || ''}', '${pl.pixel_access_token || ''}')" 
+                                                                style="font-size: 0.875rem; background: #3b82f6; color: white;">
+                                                            ${pl.pixel_id ? '✏️ Editar' : '➕ Add'} Pixel
+                                                        </button>
                                                     </div>
                                                 </div>
-                                                <input type="text" value="http://localhost:3000/checkout/${pl.link_checkout}" 
+                                                <input type="text" value="${window.location.origin}/checkout/${pl.link_checkout}" 
                                                        id="link_${pl.link_checkout}" readonly 
                                                        style="margin-top: 0.5rem; font-size: 0.875rem; color: #6b7280;">
                                             </div>
@@ -185,6 +231,35 @@
             }
         }
 
+        async function adicionarPixel(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const planoId = formData.get('plano_id');
+            const data = {
+                pixel_id: formData.get('pixel_id'),
+                pixel_access_token: formData.get('pixel_access_token')
+            };
+
+            try {
+                const res = await fetch(`/api/produtos/planos/${planoId}/pixel`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    alert('Pixel configurado com sucesso!');
+                    fecharModalPixel();
+                    carregarProdutos();
+                    e.target.reset();
+                } else {
+                    alert('Erro ao configurar pixel!');
+                }
+            } catch (error) {
+                alert('Erro ao configurar pixel!');
+            }
+        }
+
         function abrirModalProduto() {
             document.getElementById('modalProduto').classList.add('active');
         }
@@ -200,6 +275,17 @@
 
         function fecharModalPlano() {
             document.getElementById('modalPlano').classList.remove('active');
+        }
+
+        function abrirModalPixel(planoId, pixelId = '', pixelToken = '') {
+            document.getElementById('pixel_plano_id').value = planoId;
+            document.querySelector('[name="pixel_id"]').value = pixelId;
+            document.querySelector('[name="pixel_access_token"]').value = pixelToken;
+            document.getElementById('modalPixel').classList.add('active');
+        }
+
+        function fecharModalPixel() {
+            document.getElementById('modalPixel').classList.remove('active');
         }
 
         function copiarLink(linkCheckout) {

@@ -285,10 +285,31 @@
                 
                 document.getElementById('loadingPlano').style.display = 'none';
                 document.getElementById('checkoutContent').style.display = 'block';
+
+                await dispararEventoInitiateCheckout();
                 
             } catch (error) {
                 console.error('Erro ao carregar plano:', error);
                 alert('Erro ao carregar informações do produto!');
+            }
+        }
+
+        async function dispararEventoInitiateCheckout() {
+            if (!planoAtual.pixel_id) return;
+
+            try {
+                await fetch('/api/vendas/pixel/initiatecheckout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        plano_id: planoAtual.id,
+                        value: planoAtual.preco,
+                        content_name: planoAtual.produto_nome + ' - ' + planoAtual.nome
+                    })
+                });
+                console.log('Evento InitiateCheckout disparado');
+            } catch (error) {
+                console.error('Erro ao disparar InitiateCheckout:', error);
             }
         }
 

@@ -14,6 +14,8 @@ router.get('/', (req, res) => {
                        'preco', pl.preco,
                        'link_checkout', pl.link_checkout,
                        'banner', pl.banner,
+                       'pixel_id', pl.pixel_id,
+                       'pixel_access_token', pl.pixel_access_token,
                        'ativo', pl.ativo
                    )
                ) as planos
@@ -71,6 +73,20 @@ router.post('/:produtoId/planos', (req, res) => {
                 link_checkout: linkCheckout,
                 url_checkout: baseUrl + '/checkout/' + linkCheckout
             });
+        }
+    );
+});
+
+router.put('/planos/:planoId/pixel', (req, res) => {
+    const { planoId } = req.params;
+    const { pixel_id, pixel_access_token } = req.body;
+    
+    db.run(
+        'UPDATE planos SET pixel_id = ?, pixel_access_token = ? WHERE id = ?',
+        [pixel_id, pixel_access_token, planoId],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, plano_id: planoId });
         }
     );
 });
