@@ -1,8 +1,8 @@
-﻿const QRCode = require('qrcode');
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const db = require('../database/db');
 const axios = require('axios');
+const QRCode = require('qrcode');
 const { dispararEvento } = require('../helpers/facebookPixel');
 
 const PIXUP_CLIENT_ID = process.env.PIXUP_CLIENT_ID;
@@ -14,30 +14,41 @@ let tokenExpiry = null;
 
 async function getPixupToken() {
     if (pixupToken && tokenExpiry && Date.now() < tokenExpiry) {
+        console.log('Usando token em cache');
         return pixupToken;
     }
 
     try {
-        const credentials = Buffer.from(`${PIXUP_CLIENT_ID}:${PIXUP_CLIENT_SECRET}`).toString('base64');
+        console.log('Gerando novo token Pixup...');
+        console.log('Client ID:', PIXUP_CLIENT_ID);
+        
+        const credentials = `${PIXUP_CLIENT_ID}:${PIXUP_CLIENT_SECRET}`;
+        const base64Credentials = Buffer.from(credentials).toString('base64');
+        
+        console.log('Base64 gerado');
         
         const response = await axios.post(
             `${PIXUP_API_URL}/oauth/token`,
             {},
             {
                 headers: {
-                    'Authorization': `Basic ${credentials}`,
-                    'accept': 'application/json'
+                    'Authorization': `Basic ${base64Credentials}`,
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json'
                 }
             }
         );
 
-        pixupToken = response.data.access_token;
-        tokenExpiry = Date.now() + (response.data.expires_in * 1000);
+        console.log('Token recebido:', response.data);
         
-        console.log('Token Pixup gerado com sucesso');
+        pixupToken = response.data.access_token;
+        tokenExpiry = Date.now() + ((response.data.expires_in - 60) * 1000);
+        
         return pixupToken;
     } catch (error) {
         console.error('Erro ao gerar token Pixup:', error.response?.data || error.message);
+        console.error('Status:', error.response?.status);
+        console.error('Headers enviados:', error.config?.headers);
         throw error;
     }
 }
@@ -79,6 +90,7 @@ router.post('/', async (req, res) => {
         }
         
         const token = await getPixupToken();
+        console.log('Token obtido com sucesso');
         
         const pixupData = {
             amount: parseFloat(plano.preco),
@@ -112,7 +124,7 @@ router.post('/', async (req, res) => {
         let qrcodeImage = '';
         try {
             qrcodeImage = await QRCode.toDataURL(pixCode);
-            console.log('QR Code gerado como imagem');
+            console.log('QR Code gerado');
         } catch (err) {
             console.error('Erro ao gerar QR Code:', err);
             qrcodeImage = pixCode;
@@ -139,7 +151,7 @@ router.post('/', async (req, res) => {
                 return res.status(500).json({ error: err.message });
             }
             
-            console.log('Venda salva com ID:', this.lastID);
+            console.log('Venda salva:', this.lastID);
             
             if (plano.pixel_id && plano.pixel_access_token) {
                 await dispararEvento(
@@ -214,26 +226,24 @@ router.get('/stats', (req, res) => {
 });
 
 router.post('/webhook', async (req, res) => {
-    console.log('=== WEBHOOK PIXUP RECEBIDO ===');
-    console.log('Body completo:', JSON.stringify(req.body, null, 2));
+    console.log('=== WEBHOOK PIXUP ===');
+    console.log('Body:', JSON.stringify(req.body, null, 2));
     
     const { transactionId, status } = req.body;
     
     if (status === 'PAID' || status === 'APPROVED') {
         db.get('SELECT * FROM vendas WHERE pix_txid = ?', [transactionId], async (err, venda) => {
             if (err || !venda) {
-                console.error('Venda nao encontrada para transactionId:', transactionId);
+                console.error('Venda nao encontrada:', transactionId);
                 return res.json({ received: true });
             }
-
-            console.log('Venda encontrada:', venda.id);
 
             db.run(
                 'UPDATE vendas SET status = ?, pago_em = CURRENT_TIMESTAMP WHERE pix_txid = ?',
                 ['pago', transactionId],
                 async (err) => {
                     if (err) {
-                        console.error('Erro ao atualizar venda:', err);
+                        console.error('Erro ao atualizar:', err);
                         return res.json({ received: true });
                     }
 
