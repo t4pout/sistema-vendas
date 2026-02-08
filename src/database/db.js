@@ -1,15 +1,9 @@
-﻿const sqlite3 = require('sqlite3').verbose();
+﻿// A conexão agora é criada no server.js
+// Este arquivo só exporta para compatibilidade
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
 
 const dbPath = path.join(__dirname, 'vendas.db');
-
-// Apenas conecta ao banco existente, NÃO recria as tabelas
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Erro ao conectar ao banco:', err);
-    } else {
-        console.log('✓ Conectado ao banco de dados');
-    }
-});
+const db = new sqlite3.Database(dbPath);
 
 module.exports = db;
