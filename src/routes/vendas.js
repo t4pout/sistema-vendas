@@ -1,4 +1,5 @@
-﻿const express = require('express');
+﻿const QRCode = require('qrcode');
+const express = require('express');
 const router = express.Router();
 const db = require('../database/db');
 const axios = require('axios');
@@ -6,7 +7,40 @@ const { dispararEvento } = require('../helpers/facebookPixel');
 
 const PIXUP_CLIENT_ID = process.env.PIXUP_CLIENT_ID;
 const PIXUP_CLIENT_SECRET = process.env.PIXUP_CLIENT_SECRET;
-const PIXUP_API_URL = process.env.PIXUP_API_URL || 'https://api.pixup.com.br/v1';
+const PIXUP_API_URL = 'https://api.pixupbr.com/v2';
+
+let pixupToken = null;
+let tokenExpiry = null;
+
+async function getPixupToken() {
+    if (pixupToken && tokenExpiry && Date.now() < tokenExpiry) {
+        return pixupToken;
+    }
+
+    try {
+        const credentials = Buffer.from(`${PIXUP_CLIENT_ID}:${PIXUP_CLIENT_SECRET}`).toString('base64');
+        
+        const response = await axios.post(
+            `${PIXUP_API_URL}/oauth/token`,
+            {},
+            {
+                headers: {
+                    'Authorization': `Basic ${credentials}`,
+                    'accept': 'application/json'
+                }
+            }
+        );
+
+        pixupToken = response.data.access_token;
+        tokenExpiry = Date.now() + (response.data.expires_in * 1000);
+        
+        console.log('Token Pixup gerado com sucesso');
+        return pixupToken;
+    } catch (error) {
+        console.error('Erro ao gerar token Pixup:', error.response?.data || error.message);
+        throw error;
+    }
+}
 
 router.post('/', async (req, res) => {
     const { 
@@ -22,6 +56,8 @@ router.post('/', async (req, res) => {
         cliente_cidade,
         cliente_estado
     } = req.body;
+    
+    console.log('=== NOVA VENDA ===');
     
     try {
         const plano = await new Promise((resolve, reject) => {
@@ -42,29 +78,45 @@ router.post('/', async (req, res) => {
             return res.status(404).json({ error: 'Plano nao encontrado' });
         }
         
+        const token = await getPixupToken();
+        
         const pixupData = {
-            value: parseFloat(plano.preco),
-            customer: {
+            amount: parseFloat(plano.preco),
+            payerQuestion: plano.produto_nome + ' - ' + plano.nome,
+            payer: {
                 name: cliente_nome,
                 email: cliente_email,
-                phone: cliente_telefone
+                document: cliente_telefone.replace(/\D/g, '')
             },
-            description: plano.produto_nome + ' - ' + plano.nome
+            postbackUrl: (process.env.BASE_URL || 'http://localhost:3000') + '/api/vendas/webhook'
         };
         
+        console.log('Enviando para Pixup:', pixupData);
+        
         const pixupResponse = await axios.post(
-            PIXUP_API_URL + '/charges',
+            `${PIXUP_API_URL}/pix/qrcode`,
             pixupData,
             {
                 headers: {
-                    'Authorization': 'Bearer ' + PIXUP_CLIENT_ID,
-                    'X-Client-Secret': PIXUP_CLIENT_SECRET,
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${token}`,
+                    'accept': 'application/json',
+                    'content-type': 'application/json'
                 }
             }
         );
         
-        const { qrcode, brcode, txid } = pixupResponse.data;
+        console.log('Resposta Pixup:', pixupResponse.data);
+        
+        const { transactionId, qrcode: pixCode } = pixupResponse.data;
+        
+        let qrcodeImage = '';
+        try {
+            qrcodeImage = await QRCode.toDataURL(pixCode);
+            console.log('QR Code gerado como imagem');
+        } catch (err) {
+            console.error('Erro ao gerar QR Code:', err);
+            qrcodeImage = pixCode;
+        }
         
         const insertSql = `
             INSERT INTO vendas 
@@ -79,10 +131,15 @@ router.post('/', async (req, res) => {
             plano_id, cliente_nome, cliente_email, cliente_telefone,
             cliente_cep, cliente_rua, cliente_numero, cliente_complemento,
             cliente_bairro, cliente_cidade, cliente_estado,
-            plano.preco, qrcode, brcode, txid
+            plano.preco, qrcodeImage, pixCode, transactionId
         ],
         async function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) {
+                console.error('Erro ao salvar venda:', err);
+                return res.status(500).json({ error: err.message });
+            }
+            
+            console.log('Venda salva com ID:', this.lastID);
             
             if (plano.pixel_id && plano.pixel_access_token) {
                 await dispararEvento(
@@ -107,18 +164,20 @@ router.post('/', async (req, res) => {
             res.json({
                 venda_id: this.lastID,
                 valor: plano.preco,
-                qrcode: qrcode,
-                codigo_pix: brcode,
-                txid: txid,
+                qrcode: qrcodeImage,
+                codigo_pix: pixCode,
+                txid: transactionId,
                 status: 'pendente'
             });
         });
         
     } catch (error) {
-        console.error('Erro ao criar cobranca:', error.response ? error.response.data : error.message);
+        console.error('=== ERRO AO CRIAR COBRANCA ===');
+        console.error('Erro:', error.response?.data || error.message);
+        
         res.status(500).json({ 
             error: 'Erro ao gerar Pix',
-            details: error.response ? error.response.data : error.message
+            details: error.response?.data || error.message
         });
     }
 });
@@ -155,23 +214,30 @@ router.get('/stats', (req, res) => {
 });
 
 router.post('/webhook', async (req, res) => {
-    const { txid, status } = req.body;
+    console.log('=== WEBHOOK PIXUP RECEBIDO ===');
+    console.log('Body completo:', JSON.stringify(req.body, null, 2));
     
-    if (status === 'paid' || status === 'approved') {
-        db.get('SELECT * FROM vendas WHERE pix_txid = ?', [txid], async (err, venda) => {
+    const { transactionId, status } = req.body;
+    
+    if (status === 'PAID' || status === 'APPROVED') {
+        db.get('SELECT * FROM vendas WHERE pix_txid = ?', [transactionId], async (err, venda) => {
             if (err || !venda) {
-                console.error('Venda nao encontrada para txid:', txid);
+                console.error('Venda nao encontrada para transactionId:', transactionId);
                 return res.json({ received: true });
             }
 
+            console.log('Venda encontrada:', venda.id);
+
             db.run(
                 'UPDATE vendas SET status = ?, pago_em = CURRENT_TIMESTAMP WHERE pix_txid = ?',
-                ['pago', txid],
+                ['pago', transactionId],
                 async (err) => {
                     if (err) {
                         console.error('Erro ao atualizar venda:', err);
                         return res.json({ received: true });
                     }
+
+                    console.log('Venda atualizada para PAGO');
 
                     const plano = await new Promise((resolve) => {
                         db.get(
@@ -210,7 +276,6 @@ router.post('/webhook', async (req, res) => {
     }
 });
 
-
 router.post('/pixel/initiatecheckout', async (req, res) => {
     const { plano_id, value, content_name } = req.body;
     
@@ -244,7 +309,7 @@ router.post('/pixel/initiatecheckout', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao disparar InitiateCheckout:', error);
+        console.error('Erro InitiateCheckout:', error);
         res.status(500).json({ error: error.message });
     }
 });
