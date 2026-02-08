@@ -3,7 +3,6 @@ const router = express.Router();
 const db = require('../database/db');
 const crypto = require('crypto');
 
-// Listar todos os produtos com seus planos
 router.get('/', (req, res) => {
     const sql = `
         SELECT p.*, 
@@ -36,7 +35,6 @@ router.get('/', (req, res) => {
     });
 });
 
-// Criar produto
 router.post('/', (req, res) => {
     const { nome, descricao, imagem } = req.body;
     
@@ -50,12 +48,12 @@ router.post('/', (req, res) => {
     );
 });
 
-// Criar plano para um produto
 router.post('/:produtoId/planos', (req, res) => {
     const { produtoId } = req.params;
     const { nome, quantidade, preco, banner } = req.body;
     
     const linkCheckout = crypto.randomBytes(16).toString('hex');
+    const baseUrl = process.env.BASE_URL || req.protocol + '://' + req.get('host');
     
     db.run(
         'INSERT INTO planos (produto_id, nome, quantidade, preco, link_checkout, banner) VALUES (?, ?, ?, ?, ?, ?)',
@@ -71,13 +69,12 @@ router.post('/:produtoId/planos', (req, res) => {
                 preco,
                 banner,
                 link_checkout: linkCheckout,
-                url_checkout: 'http://localhost:3000/checkout/' + linkCheckout
+                url_checkout: baseUrl + '/checkout/' + linkCheckout
             });
         }
     );
 });
 
-// Buscar plano por link de checkout
 router.get('/checkout/:link', (req, res) => {
     const { link } = req.params;
     
