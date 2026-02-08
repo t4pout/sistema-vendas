@@ -13,7 +13,10 @@ db.serialize(() => {
             imagem TEXT,
             criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-    `);
+    `, (err) => {
+        if (err) console.error('Erro ao criar tabela produtos:', err);
+        else console.log('Tabela produtos criada!');
+    });
 
     db.run(`
         CREATE TABLE IF NOT EXISTS planos (
@@ -24,11 +27,16 @@ db.serialize(() => {
             preco DECIMAL(10,2) NOT NULL,
             link_checkout TEXT UNIQUE,
             banner TEXT,
+            pixel_id TEXT,
+            pixel_access_token TEXT,
             ativo BOOLEAN DEFAULT 1,
             criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (produto_id) REFERENCES produtos(id)
         )
-    `);
+    `, (err) => {
+        if (err) console.error('Erro ao criar tabela planos:', err);
+        else console.log('Tabela planos criada!');
+    });
 
     db.run(`
         CREATE TABLE IF NOT EXISTS vendas (
@@ -53,7 +61,10 @@ db.serialize(() => {
             pago_em DATETIME,
             FOREIGN KEY (plano_id) REFERENCES planos(id)
         )
-    `);
+    `, (err) => {
+        if (err) console.error('Erro ao criar tabela vendas:', err);
+        else console.log('Tabela vendas criada!');
+    });
 
     console.log('Banco de dados criado com sucesso!');
 });

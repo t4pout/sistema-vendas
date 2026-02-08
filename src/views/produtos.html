@@ -23,7 +23,7 @@
             <button class="btn btn-primary" onclick="abrirModalProduto()">+ Novo Produto</button>
         </div>
 
-        <div id="produtosList"></div>
+        <div id="produtosList">Carregando...</div>
     </div>
 
     <div id="modalProduto" class="modal">
@@ -125,7 +125,18 @@
         async function carregarProdutos() {
             try {
                 const res = await fetch('/api/produtos');
-                const produtos = await res.json();
+                
+                if (!res.ok) {
+                    throw new Error('Erro ao buscar produtos');
+                }
+                
+                const data = await res.json();
+                const produtos = Array.isArray(data) ? data : [];
+
+                if (produtos.length === 0) {
+                    document.getElementById('produtosList').innerHTML = '<p>Nenhum produto cadastrado. Clique em "+ Novo Produto" para começar.</p>';
+                    return;
+                }
 
                 const html = produtos.map(p => `
                     <div class="card">
@@ -175,10 +186,17 @@
                     </div>
                 `).join('');
 
-                document.getElementById('produtosList').innerHTML = html || '<p>Nenhum produto cadastrado.</p>';
+                document.getElementById('produtosList').innerHTML = html;
 
             } catch (error) {
                 console.error('Erro ao carregar produtos:', error);
+                document.getElementById('produtosList').innerHTML = `
+                    <div style="background: #fee2e2; padding: 1.5rem; border-radius: 8px; color: #991b1b;">
+                        <strong>Erro:</strong> ${error.message}
+                        <br><br>
+                        <button class="btn btn-primary" onclick="carregarProdutos()">Tentar Novamente</button>
+                    </div>
+                `;
             }
         }
 
@@ -197,6 +215,7 @@
                 fecharModalProduto();
                 carregarProdutos();
                 e.target.reset();
+                alert('Produto criado com sucesso!');
             } catch (error) {
                 alert('Erro ao criar produto!');
             }
@@ -221,7 +240,7 @@
                 });
 
                 const result = await res.json();
-                alert(`Plano criado com sucesso! Link: ${result.url_checkout}`);
+                alert('Plano criado com sucesso!');
 
                 fecharModalPlano();
                 carregarProdutos();
@@ -277,10 +296,10 @@
             document.getElementById('modalPlano').classList.remove('active');
         }
 
-        function abrirModalPixel(planoId, pixelId = '', pixelToken = '') {
+        function abrirModalPixel(planoId, pixelId, pixelToken) {
             document.getElementById('pixel_plano_id').value = planoId;
-            document.querySelector('[name="pixel_id"]').value = pixelId;
-            document.querySelector('[name="pixel_access_token"]').value = pixelToken;
+            document.querySelector('[name="pixel_id"]').value = pixelId || '';
+            document.querySelector('[name="pixel_access_token"]').value = pixelToken || '';
             document.getElementById('modalPixel').classList.add('active');
         }
 
