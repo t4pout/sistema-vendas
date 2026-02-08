@@ -1,4 +1,5 @@
 ﻿node_modules/
 .env
+.env.production
 src/database/*.db
 npm-debug.log
