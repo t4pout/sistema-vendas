@@ -3,10 +3,10 @@ const router = express.Router();
 const db = require('../database/db');
 const axios = require('axios');
 
-const PIXUP_CLIENT_ID = 'trevodourado7_71216521594818017';
-const PIXUP_API_URL = 'https://api.pixup.com.br/v1';
+const PIXUP_CLIENT_ID = process.env.PIXUP_CLIENT_ID;
+const PIXUP_CLIENT_SECRET = process.env.PIXUP_CLIENT_SECRET;
+const PIXUP_API_URL = process.env.PIXUP_API_URL || 'https://api.pixup.com.br/v1';
 
-// Criar venda e gerar Pix
 router.post('/', async (req, res) => {
     const { 
         plano_id, 
@@ -57,6 +57,7 @@ router.post('/', async (req, res) => {
             {
                 headers: {
                     'Authorization': 'Bearer ' + PIXUP_CLIENT_ID,
+                    'X-Client-Secret': PIXUP_CLIENT_SECRET,
                     'Content-Type': 'application/json'
                 }
             }
@@ -101,7 +102,6 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Listar vendas (dashboard)
 router.get('/', (req, res) => {
     const sql = `
         SELECT v.*, pl.nome as plano_nome, p.nome as produto_nome
@@ -117,7 +117,6 @@ router.get('/', (req, res) => {
     });
 });
 
-// Estatisticas do dashboard
 router.get('/stats', (req, res) => {
     const sql = `
         SELECT 
@@ -134,7 +133,6 @@ router.get('/stats', (req, res) => {
     });
 });
 
-// Webhook Pixup (atualizar status)
 router.post('/webhook', (req, res) => {
     const { txid, status } = req.body;
     
