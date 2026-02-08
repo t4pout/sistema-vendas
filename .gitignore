@@ -3,3 +3,5 @@
 .env.production
 src/database/*.db
 npm-debug.log
+src/database/vendas.db
+src/database/*.db
