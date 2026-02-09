@@ -1,6 +1,6 @@
 ﻿const express = require('express');
 const router = express.Router();
-const db = require('../database/db');
+const pool = require('../database/db-postgres');
 const axios = require('axios');
 const QRCode = require('qrcode');
 const { dispararEvento } = require('../helpers/facebookPixel');
@@ -71,23 +71,18 @@ router.post('/', async (req, res) => {
     console.log('=== NOVA VENDA ===');
     
     try {
-        const plano = await new Promise((resolve, reject) => {
-            const sql = `
-                SELECT pl.*, p.nome as produto_nome
-                FROM planos pl
-                JOIN produtos p ON pl.produto_id = p.id
-                WHERE pl.id = ?
-            `;
-            
-            db.get(sql, [plano_id], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
+        const planoResult = await pool.query(`
+            SELECT pl.*, p.nome as produto_nome
+            FROM planos pl
+            JOIN produtos p ON pl.produto_id = p.id
+            WHERE pl.id = $1
+        `, [plano_id]);
         
-        if (!plano) {
+        if (planoResult.rows.length === 0) {
             return res.status(404).json({ error: 'Plano nao encontrado' });
         }
+        
+        const plano = planoResult.rows[0];
         
         const token = await getPixupToken();
         console.log('Token obtido com sucesso');
@@ -130,57 +125,50 @@ router.post('/', async (req, res) => {
             qrcodeImage = pixCode;
         }
         
-        const insertSql = `
+        const insertResult = await pool.query(`
             INSERT INTO vendas 
             (plano_id, cliente_nome, cliente_email, cliente_telefone, 
              cliente_cep, cliente_rua, cliente_numero, cliente_complemento, 
              cliente_bairro, cliente_cidade, cliente_estado,
              valor, pix_qrcode, pix_codigo, pix_txid, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')
-        `;
-        
-        db.run(insertSql, [
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pendente')
+            RETURNING *
+        `, [
             plano_id, cliente_nome, cliente_email, cliente_telefone,
             cliente_cep, cliente_rua, cliente_numero, cliente_complemento,
             cliente_bairro, cliente_cidade, cliente_estado,
             plano.preco, qrcodeImage, pixCode, transactionId
-        ],
-        async function(err) {
-            if (err) {
-                console.error('Erro ao salvar venda:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            
-            console.log('Venda salva:', this.lastID);
-            
-            if (plano.pixel_id && plano.pixel_access_token) {
-                await dispararEvento(
-                    plano.pixel_id,
-                    plano.pixel_access_token,
-                    'AddPaymentInfo',
-                    {
-                        email: cliente_email,
-                        phone: cliente_telefone,
-                        name: cliente_nome,
-                        value: plano.preco,
-                        contentName: plano.produto_nome + ' - ' + plano.nome,
-                        productId: plano_id,
-                        quantity: plano.quantidade,
-                        userAgent: req.headers['user-agent'],
-                        ip: req.ip,
-                        eventSourceUrl: req.headers.referer || req.headers.origin
-                    }
-                );
-            }
-            
-            res.json({
-                venda_id: this.lastID,
-                valor: plano.preco,
-                qrcode: qrcodeImage,
-                codigo_pix: pixCode,
-                txid: transactionId,
-                status: 'pendente'
-            });
+        ]);
+        
+        console.log('Venda salva:', insertResult.rows[0]);
+        
+        if (plano.pixel_id && plano.pixel_access_token) {
+            await dispararEvento(
+                plano.pixel_id,
+                plano.pixel_access_token,
+                'AddPaymentInfo',
+                {
+                    email: cliente_email,
+                    phone: cliente_telefone,
+                    name: cliente_nome,
+                    value: plano.preco,
+                    contentName: plano.produto_nome + ' - ' + plano.nome,
+                    productId: plano_id,
+                    quantity: plano.quantidade,
+                    userAgent: req.headers['user-agent'],
+                    ip: req.ip,
+                    eventSourceUrl: req.headers.referer || req.headers.origin
+                }
+            );
+        }
+        
+        res.json({
+            venda_id: insertResult.rows[0].id,
+            valor: plano.preco,
+            qrcode: qrcodeImage,
+            codigo_pix: pixCode,
+            txid: transactionId,
+            status: 'pendente'
         });
         
     } catch (error) {
@@ -194,35 +182,37 @@ router.post('/', async (req, res) => {
     }
 });
 
-router.get('/', (req, res) => {
-    const sql = `
-        SELECT v.*, pl.nome as plano_nome, p.nome as produto_nome
-        FROM vendas v
-        JOIN planos pl ON v.plano_id = pl.id
-        JOIN produtos p ON pl.produto_id = p.id
-        ORDER BY v.criado_em DESC
-    `;
-    
-    db.all(sql, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
+router.get('/', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT v.*, pl.nome as plano_nome, p.nome as produto_nome
+            FROM vendas v
+            JOIN planos pl ON v.plano_id = pl.id
+            JOIN produtos p ON pl.produto_id = p.id
+            ORDER BY v.criado_em DESC
+        `);
+        
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.get('/stats', (req, res) => {
-    const sql = `
-        SELECT 
-            COUNT(*) as total_vendas,
-            SUM(CASE WHEN status = 'pago' THEN valor ELSE 0 END) as total_faturado,
-            SUM(CASE WHEN status = 'pendente' THEN valor ELSE 0 END) as total_pendente,
-            COUNT(CASE WHEN status = 'pago' THEN 1 END) as vendas_pagas
-        FROM vendas
-    `;
-    
-    db.get(sql, (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(row);
-    });
+router.get('/stats', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COUNT(*) as total_vendas,
+                SUM(CASE WHEN status = 'pago' THEN valor ELSE 0 END) as total_faturado,
+                SUM(CASE WHEN status = 'pendente' THEN valor ELSE 0 END) as total_pendente,
+                COUNT(CASE WHEN status = 'pago' THEN 1 END) as vendas_pagas
+            FROM vendas
+        `);
+        
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 router.post('/webhook', async (req, res) => {
@@ -232,55 +222,60 @@ router.post('/webhook', async (req, res) => {
     const { transactionId, status } = req.body;
     
     if (status === 'PAID' || status === 'APPROVED') {
-        db.get('SELECT * FROM vendas WHERE pix_txid = ?', [transactionId], async (err, venda) => {
-            if (err || !venda) {
+        try {
+            const vendaResult = await pool.query(
+                'SELECT * FROM vendas WHERE pix_txid = $1',
+                [transactionId]
+            );
+            
+            if (vendaResult.rows.length === 0) {
                 console.error('Venda nao encontrada:', transactionId);
                 return res.json({ received: true });
             }
-
-            db.run(
-                'UPDATE vendas SET status = ?, pago_em = CURRENT_TIMESTAMP WHERE pix_txid = ?',
-                ['pago', transactionId],
-                async (err) => {
-                    if (err) {
-                        console.error('Erro ao atualizar:', err);
-                        return res.json({ received: true });
-                    }
-
-                    console.log('Venda atualizada para PAGO');
-
-                    const plano = await new Promise((resolve) => {
-                        db.get(
-                            'SELECT pl.*, p.nome as produto_nome FROM planos pl JOIN produtos p ON pl.produto_id = p.id WHERE pl.id = ?',
-                            [venda.plano_id],
-                            (err, row) => resolve(row)
-                        );
-                    });
-
-                    if (plano && plano.pixel_id && plano.pixel_access_token) {
-                        await dispararEvento(
-                            plano.pixel_id,
-                            plano.pixel_access_token,
-                            'Purchase',
-                            {
-                                email: venda.cliente_email,
-                                phone: venda.cliente_telefone,
-                                name: venda.cliente_nome,
-                                value: venda.valor,
-                                contentName: plano.produto_nome + ' - ' + plano.nome,
-                                productId: plano.id,
-                                quantity: plano.quantidade,
-                                userAgent: 'webhook',
-                                ip: '127.0.0.1',
-                                eventSourceUrl: process.env.BASE_URL
-                            }
-                        );
-                    }
-
-                    res.json({ received: true });
-                }
+            
+            const venda = vendaResult.rows[0];
+            
+            await pool.query(
+                'UPDATE vendas SET status = $1, pago_em = CURRENT_TIMESTAMP WHERE pix_txid = $2',
+                ['pago', transactionId]
             );
-        });
+            
+            console.log('Venda atualizada para PAGO');
+            
+            const planoResult = await pool.query(
+                'SELECT pl.*, p.nome as produto_nome FROM planos pl JOIN produtos p ON pl.produto_id = p.id WHERE pl.id = $1',
+                [venda.plano_id]
+            );
+            
+            if (planoResult.rows.length > 0) {
+                const plano = planoResult.rows[0];
+                
+                if (plano.pixel_id && plano.pixel_access_token) {
+                    await dispararEvento(
+                        plano.pixel_id,
+                        plano.pixel_access_token,
+                        'Purchase',
+                        {
+                            email: venda.cliente_email,
+                            phone: venda.cliente_telefone,
+                            name: venda.cliente_nome,
+                            value: venda.valor,
+                            contentName: plano.produto_nome + ' - ' + plano.nome,
+                            productId: plano.id,
+                            quantity: plano.quantidade,
+                            userAgent: 'webhook',
+                            ip: '127.0.0.1',
+                            eventSourceUrl: process.env.BASE_URL
+                        }
+                    );
+                }
+            }
+            
+            res.json({ received: true });
+        } catch (err) {
+            console.error('Erro no webhook:', err);
+            res.json({ received: true });
+        }
     } else {
         res.json({ received: true });
     }
@@ -290,31 +285,30 @@ router.post('/pixel/initiatecheckout', async (req, res) => {
     const { plano_id, value, content_name } = req.body;
     
     try {
-        const plano = await new Promise((resolve, reject) => {
-            db.get('SELECT * FROM planos WHERE id = ?', [plano_id], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
-
-        if (plano && plano.pixel_id && plano.pixel_access_token) {
-            await dispararEvento(
-                plano.pixel_id,
-                plano.pixel_access_token,
-                'InitiateCheckout',
-                {
-                    email: 'visitante@checkout.com',
-                    phone: '',
-                    name: 'Visitante',
-                    value: value,
-                    contentName: content_name,
-                    productId: plano_id,
-                    quantity: plano.quantidade,
-                    userAgent: req.headers['user-agent'],
-                    ip: req.ip,
-                    eventSourceUrl: req.headers.referer || req.headers.origin
-                }
-            );
+        const result = await pool.query('SELECT * FROM planos WHERE id = $1', [plano_id]);
+        
+        if (result.rows.length > 0) {
+            const plano = result.rows[0];
+            
+            if (plano.pixel_id && plano.pixel_access_token) {
+                await dispararEvento(
+                    plano.pixel_id,
+                    plano.pixel_access_token,
+                    'InitiateCheckout',
+                    {
+                        email: 'visitante@checkout.com',
+                        phone: '',
+                        name: 'Visitante',
+                        value: value,
+                        contentName: content_name,
+                        productId: plano_id,
+                        quantity: plano.quantidade,
+                        userAgent: req.headers['user-agent'],
+                        ip: req.ip,
+                        eventSourceUrl: req.headers.referer || req.headers.origin
+                    }
+                );
+            }
         }
 
         res.json({ success: true });

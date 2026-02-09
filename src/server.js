@@ -8,8 +8,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
-// ✅ USAR CONEXÃO ÚNICA DO MÓDULO database/db.js
-const db = require('./database/db');
+// ✅ USAR CONEXÃO POSTGRESQL
+const pool = require('./database/db-postgres');
 
 app.set('BASE_URL', BASE_URL);
 
@@ -44,7 +44,8 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('🚀 Servidor rodando em: ' + BASE_URL);
     console.log('📊 Dashboard: ' + BASE_URL);
     console.log('📦 Produtos: ' + BASE_URL + '/produtos');
+    console.log('🐘 Usando PostgreSQL');
     console.log('=========================');
 });
 
-module.exports = db;
+module.exports = pool;

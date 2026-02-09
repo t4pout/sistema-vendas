@@ -1,72 +1,63 @@
 ﻿const express = require('express');
 const router = express.Router();
-const db = require('../database/db');
+const pool = require('../database/db-postgres');
 const crypto = require('crypto');
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     console.log('=== INICIO GET /api/produtos ===');
     
-    const sql = `
-        SELECT p.*, 
-               GROUP_CONCAT(
-                   json_object(
-                       'id', pl.id,
-                       'nome', pl.nome,
-                       'quantidade', pl.quantidade,
-                       'preco', pl.preco,
-                       'link_checkout', pl.link_checkout,
-                       'banner', pl.banner,
-                       'pixel_id', pl.pixel_id,
-                       'pixel_access_token', pl.pixel_access_token,
-                       'ativo', pl.ativo
-                   )
-               ) as planos
-        FROM produtos p
-        LEFT JOIN planos pl ON p.id = pl.produto_id
-        GROUP BY p.id
-        ORDER BY p.criado_em DESC
-    `;
-    
-    db.all(sql, (err, rows) => {
-        if (err) {
-            console.error('Erro SQL:', err);
-            return res.status(500).json({ error: err.message });
-        }
+    try {
+        const produtosResult = await pool.query(`
+            SELECT p.*, 
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'id', pl.id,
+                               'nome', pl.nome,
+                               'quantidade', pl.quantidade,
+                               'preco', pl.preco,
+                               'link_checkout', pl.link_checkout,
+                               'banner', pl.banner,
+                               'pixel_id', pl.pixel_id,
+                               'pixel_access_token', pl.pixel_access_token,
+                               'ativo', pl.ativo
+                           )
+                       ) FILTER (WHERE pl.id IS NOT NULL), '[]'
+                   ) as planos
+            FROM produtos p
+            LEFT JOIN planos pl ON p.id = pl.produto_id
+            GROUP BY p.id
+            ORDER BY p.criado_em DESC
+        `);
         
-        console.log('Linhas retornadas:', rows);
-        
-        const produtos = rows.map(row => ({
-            ...row,
-            planos: row.planos ? JSON.parse('[' + row.planos + ']') : []
-        }));
-        
-        console.log('Produtos processados:', produtos);
-        console.log('=== FIM GET /api/produtos ===');
-        
-        res.json(produtos);
-    });
+        console.log('Produtos retornados:', produtosResult.rows);
+        res.json(produtosResult.rows);
+    } catch (err) {
+        console.error('Erro SQL:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     const { nome, descricao, imagem } = req.body;
     
     console.log('Criando produto:', { nome, descricao, imagem });
     
-    db.run(
-        'INSERT INTO produtos (nome, descricao, imagem) VALUES (?, ?, ?)',
-        [nome, descricao, imagem],
-        function(err) {
-            if (err) {
-                console.error('Erro ao criar produto:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            console.log('Produto criado com ID:', this.lastID);
-            res.json({ id: this.lastID, nome, descricao, imagem });
-        }
-    );
+    try {
+        const result = await pool.query(
+            'INSERT INTO produtos (nome, descricao, imagem) VALUES ($1, $2, $3) RETURNING *',
+            [nome, descricao, imagem]
+        );
+        
+        console.log('Produto criado:', result.rows[0]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao criar produto:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.post('/:produtoId/planos', (req, res) => {
+router.post('/:produtoId/planos', async (req, res) => {
     const { produtoId } = req.params;
     const { nome, quantidade, preco, banner } = req.body;
     
@@ -75,76 +66,68 @@ router.post('/:produtoId/planos', (req, res) => {
     
     console.log('Criando plano:', { produtoId, nome, quantidade, preco, banner });
     
-    db.run(
-        'INSERT INTO planos (produto_id, nome, quantidade, preco, link_checkout, banner) VALUES (?, ?, ?, ?, ?, ?)',
-        [produtoId, nome, quantidade, preco, linkCheckout, banner],
-        function(err) {
-            if (err) {
-                console.error('Erro ao criar plano:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            
-            console.log('Plano criado com ID:', this.lastID);
-            
-            res.json({ 
-                id: this.lastID, 
-                produto_id: produtoId,
-                nome, 
-                quantidade, 
-                preco,
-                banner,
-                link_checkout: linkCheckout,
-                url_checkout: baseUrl + '/checkout/' + linkCheckout
-            });
-        }
-    );
+    try {
+        const result = await pool.query(
+            'INSERT INTO planos (produto_id, nome, quantidade, preco, link_checkout, banner) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [produtoId, nome, quantidade, preco, linkCheckout, banner]
+        );
+        
+        console.log('Plano criado:', result.rows[0]);
+        
+        res.json({ 
+            ...result.rows[0],
+            url_checkout: baseUrl + '/checkout/' + linkCheckout
+        });
+    } catch (err) {
+        console.error('Erro ao criar plano:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.put('/planos/:planoId/pixel', (req, res) => {
+router.put('/planos/:planoId/pixel', async (req, res) => {
     const { planoId } = req.params;
     const { pixel_id, pixel_access_token } = req.body;
     
     console.log('Atualizando pixel do plano:', planoId);
     
-    db.run(
-        'UPDATE planos SET pixel_id = ?, pixel_access_token = ? WHERE id = ?',
-        [pixel_id, pixel_access_token, planoId],
-        function(err) {
-            if (err) {
-                console.error('Erro ao atualizar pixel:', err);
-                return res.status(500).json({ error: err.message });
-            }
-            console.log('Pixel atualizado para plano:', planoId);
-            res.json({ success: true, plano_id: planoId });
-        }
-    );
+    try {
+        await pool.query(
+            'UPDATE planos SET pixel_id = $1, pixel_access_token = $2 WHERE id = $3',
+            [pixel_id, pixel_access_token, planoId]
+        );
+        
+        console.log('Pixel atualizado para plano:', planoId);
+        res.json({ success: true, plano_id: planoId });
+    } catch (err) {
+        console.error('Erro ao atualizar pixel:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
-router.get('/checkout/:link', (req, res) => {
+router.get('/checkout/:link', async (req, res) => {
     const { link } = req.params;
     
     console.log('Buscando plano por link:', link);
     
-    const sql = `
-        SELECT pl.*, p.nome as produto_nome, p.descricao, p.imagem
-        FROM planos pl
-        JOIN produtos p ON pl.produto_id = p.id
-        WHERE pl.link_checkout = ? AND pl.ativo = 1
-    `;
-    
-    db.get(sql, [link], (err, row) => {
-        if (err) {
-            console.error('Erro ao buscar plano:', err);
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
+    try {
+        const result = await pool.query(`
+            SELECT pl.*, p.nome as produto_nome, p.descricao, p.imagem
+            FROM planos pl
+            JOIN produtos p ON pl.produto_id = p.id
+            WHERE pl.link_checkout = $1 AND pl.ativo = true
+        `, [link]);
+        
+        if (result.rows.length === 0) {
             console.log('Plano não encontrado para link:', link);
             return res.status(404).json({ error: 'Plano nao encontrado' });
         }
         
-        console.log('Plano encontrado:', row);
-        res.json(row);
-    });
+        console.log('Plano encontrado:', result.rows[0]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao buscar plano:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 module.exports = router;
